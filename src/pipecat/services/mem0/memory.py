@@ -1,3 +1,6 @@
+### MODIFIED FILE BY ERIK### 
+import asyncio
+
 #
 # Copyright (c) 2024–2025, Daily
 #
@@ -112,13 +115,42 @@ class Mem0MemoryService(FrameProcessor):
         self.last_query = None
         logger.info(f"Initialized Mem0MemoryService with {user_id=}, {agent_id=}, {run_id=}")
 
+
+    """ADD THIS FOR ASYNC ADD"""
+    def _build_add_params(self, messages, metadata=None):
+        params = {
+            "messages": messages,
+            "metadata": {"platform": "pipecat", **(metadata or {})},
+        }
+        # attach IDs if present
+        for key in ("user_id", "agent_id", "run_id"):
+            val = getattr(self, key, None)
+            if val is not None:
+                params[key] = val
+        return params
+
+    async def _add_local_async(self, params: dict):
+        """Run local Memory.add() off the main loop."""
+        await asyncio.to_thread(self.memory_client.add, **params)
+
+    async def _add_cloud_async(self, params: dict, async_mode: bool = True):
+        """Cloud MemoryClient supports async_mode and output_format."""
+        params = {**params, "async_mode": async_mode, "output_format": "v1.1"}
+        # Cloud client call is IO-bound; it's fine to just call it
+        # (or also to_thread if you prefer symmetry)
+        self.memory_client.add(**params)
+
+    def _is_local(self) -> bool:
+        return isinstance(self.memory_client, Memory)  # local
+    """"END ADD THIS FOR ASYNC ADD"""
+
     def _store_messages(self, messages: List[Dict[str, Any]]):
         """Store messages in Mem0.
 
         Args:
             messages: List of message dictionaries to store in memory.
         """
-        try:
+        """try:
             logger.debug(f"Storing {len(messages)} messages in Mem0")
             params = {
                 "async_mode": True,
@@ -134,6 +166,20 @@ class Mem0MemoryService(FrameProcessor):
                 del params["output_format"]
             # Note: You can run this in background to avoid blocking the conversation
             self.memory_client.add(**params)
+        except Exception as e:
+            logger.error(f"Error storing messages in Mem0: {e}")"""
+        
+
+        try:
+            logger.debug(f"Storing {len(messages)} messages in Mem0")
+            base = self._build_add_params(messages)
+
+            if self._is_local():
+                # no async_mode, no output_format on local
+                asyncio.create_task(self._add_local_async(base))
+            else:
+                # cloud supports async_mode + output_format
+                asyncio.create_task(self._add_cloud_async(base, async_mode=True))
         except Exception as e:
             logger.error(f"Error storing messages in Mem0: {e}")
 
@@ -259,3 +305,4 @@ class Mem0MemoryService(FrameProcessor):
         else:
             # For non-context frames, just pass them through
             await self.push_frame(frame, direction)
+
