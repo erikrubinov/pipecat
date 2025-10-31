@@ -118,6 +118,8 @@ class Mem0MemoryService(FrameProcessor):
 
     """ADD THIS FOR ASYNC ADD"""
     def _build_add_params(self, messages, metadata=None):
+        # Modification by Erik: remove tool_call messages
+        messages = [m for m in messages if "tool_calls" not in m]
         params = {
             "messages": messages,
             "metadata": {"platform": "pipecat", **(metadata or {})},
